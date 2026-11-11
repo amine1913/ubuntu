@@ -1,0 +1,99 @@
+name: Ubuntu Desktop via VNC
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ubuntu-desktop
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 350
+    steps:
+      - name: Install desktop and VNC
+        env:
+          VNC_PASS: ${{ secrets.VNC_PASSWORD }}
+        run: |
+          set -e
+          if [ -z "$VNC_PASS" ]; then echo "❌ خطأ: لم يتم إضافة VNC_PASSWORD"; exit 1; fi
+          
+          export DEBIAN_FRONTEND=noninteractive
+          
+          echo "⚙️ جاري إصلاح سيرفرات التحديث البطيئة..."
+          # إصلاح سيرفرات التحديث في النظام الجديد والقديم
+          sudo sed -i 's/azure.archive.ubuntu.com/archive.ubuntu.com/g' /etc/apt/sources.list || true
+          sudo sed -i 's/azure.archive.ubuntu.com/archive.ubuntu.com/g' /etc/apt/sources.list.d/ubuntu.sources || true
+          
+          # إجبار النظام على تحميل حزم المعالج الأساسي فقط (لتسريع التحميل)
+          echo 'Acquire::Architectures "amd64";' | sudo tee /etc/apt/apt.conf.d/99force-arch > /dev/null
+          
+          echo "📥 جاري تحديث النظام..."
+          sudo apt-get update -o Acquire::ForceIPv4=true -o Acquire::http::Timeout=15
+          
+          echo "📦 جاري تثبيت الواجهة (قد يستغرق دقيقتين)..."
+          sudo apt-get install -y --no-install-recommends -o Acquire::ForceIPv4=true -o Acquire::http::Timeout=15 \
+            xfce4 xfce4-goodies tigervnc-standalone-server novnc websockify dbus-x11
+            
+          mkdir -p ~/.vnc
+          
+          # إنشاء كلمة المرور بشكل صامت
+          echo -e "$VNC_PASS\n$VNC_PASS\nn" | vncpasswd > /dev/null
+          chmod 600 ~/.vnc/passwd
+          
+          # إعداد ملف التشغيل لحل مشكلة الشاشة السوداء
+          cat <<EOF > ~/.vnc/xstartup
+          #!/bin/bash
+          unset SESSION_MANAGER
+          unset DBUS_SESSION_BUS_ADDRESS
+          exec dbus-launch --exit-with-session startxfce4
+          EOF
+          chmod +x ~/.vnc/xstartup
+          
+          echo "🖥️ جاري تشغيل VNC..."
+          vncserver :1 -geometry 1366x768 -depth 24
+          
+          echo "🌐 جاري تشغيل WebSockify..."
+          websockify -D --web /usr/share/novnc 127.0.0.1:6080 localhost:5901
+          
+          # التأكد من أن VNC يعمل فعلياً
+          sleep 2
+          if ! pgrep -f "Xvnc :1" > /dev/null; then
+            echo "❌ فشل تشغيل VNC! هذه هي السجلات:"
+            cat ~/.vnc/*.log || true
+            exit 1
+          fi
+          echo "✅ تم تثبيت وتشغيل الواجهة بنجاح!"
+
+      - name: Start Cloudflare Tunnel
+        run: |
+          echo "🌐 جاري إنشاء رابط الاتصال..."
+          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
+          chmod +x cloudflared
+          setsid nohup ./cloudflared tunnel --url http://127.0.0.1:6080 --no-autoupdate > tunnel.log 2>&1 &
+          
+          for i in $(seq 1 40); do
+            URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' tunnel.log | grep -v '^https://api\.' | head -1 || true)
+            [ -n "$URL" ] && break
+            sleep 2
+          done
+          
+          if [ -z "$URL" ]; then echo "❌ فشل إنشاء النفق"; cat tunnel.log; exit 1; fi
+          
+          LINK="$URL/vnc.html?autoconnect=true&resize=remote"
+          echo "::notice title=Desktop link::$LINK"
+          echo "### 🔗 رابط الدخول: [اضغط هنا للاتصال]($LINK)" >> "$GITHUB_STEP_SUMMARY"
+          echo "✅ الرابط جاهز!"
+
+      - name: Keep Alive
+        run: |
+          echo "✅ النظام يعمل الآن. اذهب إلى صفحة Summary في الأعلى واضغط على الرابط."
+          while pgrep -f "Xvnc :1" > /dev/null && pgrep -f "cloudflared tunnel" > /dev/null; do 
+            sleep 300
+          done
+          echo "❌ توقفت إحدى الخدمات."
+          exit 1
