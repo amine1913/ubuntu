@@ -16,34 +16,31 @@ jobs:
     timeout-minutes: 350
     steps:
       - name: Install desktop and VNC
+        env:
+          VNC_PASS: ${{ secrets.VNC_PASSWORD }}
         run: |
           set -e
-          # كلمة مرور ثابتة للتجربة (8 أحرف)
-          VNC_PASS="12345678"
+          if [ -z "$VNC_PASS" ]; then echo "❌ خطأ: لم يتم إضافة VNC_PASSWORD"; exit 1; fi
           
           export DEBIAN_FRONTEND=noninteractive
           
           echo "⚙️ جاري مسح سيرفرات مايكروسوفت البطيئة وبناء سيرفرات سريعة..."
-          # 1. حذف جميع مستودعات مايكروسوفت وآزور نهائياً
           sudo rm -rf /etc/apt/sources.list.d/*
-          
-          # 2. كتابة سيرفرات أوبنتو الرسمية السريعة (Jammy)
           sudo tee /etc/apt/sources.list > /dev/null <<EOF
           deb http://archive.ubuntu.com/ubuntu/ jammy main restricted universe multiverse
           deb http://archive.ubuntu.com/ubuntu/ jammy-updates main restricted universe multiverse
           deb http://archive.ubuntu.com/ubuntu/ jammy-backports main restricted universe multiverse
           deb http://security.ubuntu.com/ubuntu/ jammy-security main restricted universe multiverse
           EOF
-          
-          # 3. إجبار النظام على تحميل حزم المعالج الأساسي فقط
           echo 'Acquire::Architectures "amd64";' | sudo tee /etc/apt/apt.conf.d/99force-arch > /dev/null
           
           echo "📥 جاري تحديث النظام..."
           sudo apt-get update -o Acquire::ForceIPv4=true -o Acquire::http::Timeout=15
           
           echo "📦 جاري تثبيت الواجهة (قد يستغرق دقيقة)..."
+          # تمت إضافة tigervnc-tools لحل مشكلة vncpasswd
           sudo apt-get install -y --no-install-recommends -o Acquire::ForceIPv4=true -o Acquire::http::Timeout=15 \
-            xfce4 xfce4-goodies tigervnc-standalone-server novnc websockify dbus-x11
+            xfce4 xfce4-goodies tigervnc-standalone-server tigervnc-tools novnc websockify dbus-x11
             
           mkdir -p ~/.vnc
           echo -e "$VNC_PASS\n$VNC_PASS\nn" | vncpasswd > /dev/null
