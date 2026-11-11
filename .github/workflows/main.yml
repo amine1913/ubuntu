@@ -37,9 +37,9 @@ jobs:
           sudo apt-get update -o Acquire::ForceIPv4=true -o Acquire::http::Timeout=15
           
           echo "📦 جاري تثبيت مدير النوافذ المضمون..."
-          # تثبيت openbox (مدير نوافذ)، tint2 (شريط مهام)، xterm (طرفية)، firefox (متصفح)
+          # تم حذف firefox لتجنب مشكلة Snap والتعليق
           sudo apt-get install -y --no-install-recommends -o Acquire::ForceIPv4=true -o Acquire::http::Timeout=15 \
-            xvfb x11vnc openbox tint2 xterm firefox novnc websockify
+            xvfb x11vnc openbox tint2 xterm novnc websockify
             
           mkdir -p ~/.vnc
           x11vnc -storepasswd "$VNC_PASS" ~/.vnc/passwd
