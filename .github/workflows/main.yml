@@ -16,36 +16,39 @@ jobs:
     timeout-minutes: 350
     steps:
       - name: Install desktop and VNC
-        env:
-          VNC_PASS: ${{ secrets.VNC_PASSWORD }}
         run: |
           set -e
-          if [ -z "$VNC_PASS" ]; then echo "❌ خطأ: لم يتم إضافة VNC_PASSWORD"; exit 1; fi
+          # كلمة مرور ثابتة للتجربة (8 أحرف)
+          VNC_PASS="12345678"
           
           export DEBIAN_FRONTEND=noninteractive
           
-          echo "⚙️ جاري إصلاح سيرفرات التحديث البطيئة..."
-          # إصلاح سيرفرات التحديث في النظام الجديد والقديم
-          sudo sed -i 's/azure.archive.ubuntu.com/archive.ubuntu.com/g' /etc/apt/sources.list || true
-          sudo sed -i 's/azure.archive.ubuntu.com/archive.ubuntu.com/g' /etc/apt/sources.list.d/ubuntu.sources || true
+          echo "⚙️ جاري مسح سيرفرات مايكروسوفت البطيئة وبناء سيرفرات سريعة..."
+          # 1. حذف جميع مستودعات مايكروسوفت وآزور نهائياً
+          sudo rm -rf /etc/apt/sources.list.d/*
           
-          # إجبار النظام على تحميل حزم المعالج الأساسي فقط (لتسريع التحميل)
+          # 2. كتابة سيرفرات أوبنتو الرسمية السريعة (Jammy)
+          sudo tee /etc/apt/sources.list > /dev/null <<EOF
+          deb http://archive.ubuntu.com/ubuntu/ jammy main restricted universe multiverse
+          deb http://archive.ubuntu.com/ubuntu/ jammy-updates main restricted universe multiverse
+          deb http://archive.ubuntu.com/ubuntu/ jammy-backports main restricted universe multiverse
+          deb http://security.ubuntu.com/ubuntu/ jammy-security main restricted universe multiverse
+          EOF
+          
+          # 3. إجبار النظام على تحميل حزم المعالج الأساسي فقط
           echo 'Acquire::Architectures "amd64";' | sudo tee /etc/apt/apt.conf.d/99force-arch > /dev/null
           
           echo "📥 جاري تحديث النظام..."
           sudo apt-get update -o Acquire::ForceIPv4=true -o Acquire::http::Timeout=15
           
-          echo "📦 جاري تثبيت الواجهة (قد يستغرق دقيقتين)..."
+          echo "📦 جاري تثبيت الواجهة (قد يستغرق دقيقة)..."
           sudo apt-get install -y --no-install-recommends -o Acquire::ForceIPv4=true -o Acquire::http::Timeout=15 \
             xfce4 xfce4-goodies tigervnc-standalone-server novnc websockify dbus-x11
             
           mkdir -p ~/.vnc
-          
-          # إنشاء كلمة المرور بشكل صامت
           echo -e "$VNC_PASS\n$VNC_PASS\nn" | vncpasswd > /dev/null
           chmod 600 ~/.vnc/passwd
           
-          # إعداد ملف التشغيل لحل مشكلة الشاشة السوداء
           cat <<EOF > ~/.vnc/xstartup
           #!/bin/bash
           unset SESSION_MANAGER
@@ -60,7 +63,6 @@ jobs:
           echo "🌐 جاري تشغيل WebSockify..."
           websockify -D --web /usr/share/novnc 127.0.0.1:6080 localhost:5901
           
-          # التأكد من أن VNC يعمل فعلياً
           sleep 2
           if ! pgrep -f "Xvnc :1" > /dev/null; then
             echo "❌ فشل تشغيل VNC! هذه هي السجلات:"
