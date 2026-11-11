@@ -38,7 +38,6 @@ jobs:
           sudo apt-get update -o Acquire::ForceIPv4=true -o Acquire::http::Timeout=15
           
           echo "📦 جاري تثبيت الواجهة (قد يستغرق دقيقة)..."
-          # إضافة at-spi2-core لحل تحذيرات AT-SPI
           sudo apt-get install -y --no-install-recommends -o Acquire::ForceIPv4=true -o Acquire::http::Timeout=15 \
             xfce4 xfce4-goodies tigervnc-standalone-server tigervnc-tools novnc websockify dbus-x11 at-spi2-core
             
@@ -46,17 +45,18 @@ jobs:
           echo -e "$VNC_PASS\n$VNC_PASS\nn" | vncpasswd > /dev/null
           chmod 600 ~/.vnc/passwd
           
-          # استخدام dbus-run-session لتشغيل جلسة نظيفة ومعزولة
-          cat <<EOF > ~/.vnc/xstartup
+          # تعديل ملف xstartup لاستخدام dbus-launch وتعيين بيئة التشغيل
+          cat <<'EOF' > ~/.vnc/xstartup
           #!/bin/bash
           unset SESSION_MANAGER
           unset DBUS_SESSION_BUS_ADDRESS
-          exec dbus-run-session -- startxfce4
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          install -d -m 700 "$XDG_RUNTIME_DIR"
+          exec dbus-launch --exit-with-session startxfce4
           EOF
           chmod +x ~/.vnc/xstartup
           
           echo "🖥️ جاري تشغيل VNC..."
-          # تشغيل VNC مع تمرير ملف xstartup الجديد
           vncserver :1 -geometry 1366x768 -depth 24 -xstartup ~/.vnc/xstartup
           
           echo "🌐 جاري تشغيل WebSockify..."
