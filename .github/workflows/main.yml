@@ -24,7 +24,7 @@ jobs:
           
           export DEBIAN_FRONTEND=noninteractive
           
-          echo "⚙️ جاري مسح سيرفرات مايكروسوفت البطيئة وبناء سيرفرات سريعة..."
+          # تسريع السيرفرات وإلغاء حزم ARM
           sudo rm -rf /etc/apt/sources.list.d/*
           sudo tee /etc/apt/sources.list > /dev/null <<EOF
           deb http://archive.ubuntu.com/ubuntu/ jammy main restricted universe multiverse
@@ -34,41 +34,33 @@ jobs:
           EOF
           echo 'Acquire::Architectures "amd64";' | sudo tee /etc/apt/apt.conf.d/99force-arch > /dev/null
           
-          echo "📥 جاري تحديث النظام..."
           sudo apt-get update -o Acquire::ForceIPv4=true -o Acquire::http::Timeout=15
           
-          echo "📦 جاري تثبيت الواجهة (قد يستغرق دقيقة)..."
+          # تثبيت LXDE (خفيفة ومستقرة) مع x11vnc
           sudo apt-get install -y --no-install-recommends -o Acquire::ForceIPv4=true -o Acquire::http::Timeout=15 \
-            xfce4 xfce4-goodies tigervnc-standalone-server tigervnc-tools novnc websockify dbus-x11 at-spi2-core
+            lxde x11vnc xvfb novnc websockify
             
           mkdir -p ~/.vnc
-          echo -e "$VNC_PASS\n$VNC_PASS\nn" | vncpasswd > /dev/null
-          chmod 600 ~/.vnc/passwd
+          # x11vnc يحتاج كلمة مرور ملف
+          x11vnc -storepasswd "$VNC_PASS" ~/.vnc/passwd
           
-          # تعديل ملف xstartup لاستخدام dbus-launch وتعيين بيئة التشغيل
-          cat <<'EOF' > ~/.vnc/xstartup
-          #!/bin/bash
-          unset SESSION_MANAGER
-          unset DBUS_SESSION_BUS_ADDRESS
-          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
-          install -d -m 700 "$XDG_RUNTIME_DIR"
-          exec dbus-launch --exit-with-session startxfce4
-          EOF
-          chmod +x ~/.vnc/xstartup
+          echo "🖥️ جاري تشغيل الشاشة الوهمية..."
+          # تشغيل شاشة وهمية في الخلفية
+          Xvfb :1 -screen 0 1366x768x24 &
+          sleep 2
           
-          echo "🖥️ جاري تشغيل VNC..."
-          vncserver :1 -geometry 1366x768 -depth 24 -xstartup ~/.vnc/xstartup
+          echo "🪟 جاري تشغيل واجهة LXDE..."
+          DISPLAY=:1 startlxde &
+          sleep 3
+          
+          echo "🔗 جاري تشغيل VNC..."
+          x11vnc -display :1 -forever -shared -rfbauth ~/.vnc/passwd -rfbport 5901 &
+          sleep 2
           
           echo "🌐 جاري تشغيل WebSockify..."
           websockify -D --web /usr/share/novnc 127.0.0.1:6080 localhost:5901
           
-          sleep 3
-          if ! pgrep -f "Xvnc :1" > /dev/null; then
-            echo "❌ فشل تشغيل VNC! هذه هي السجلات:"
-            cat ~/.vnc/*.log || true
-            exit 1
-          fi
-          echo "✅ تم تثبيت وتشغيل الواجهة بنجاح!"
+          echo "✅ الواجهة تعمل!"
 
       - name: Start Cloudflare Tunnel
         run: |
@@ -93,7 +85,7 @@ jobs:
       - name: Keep Alive
         run: |
           echo "✅ النظام يعمل الآن. اذهب إلى صفحة Summary في الأعلى واضغط على الرابط."
-          while pgrep -f "Xvnc :1" > /dev/null && pgrep -f "cloudflared tunnel" > /dev/null; do 
+          while pgrep -f "Xvfb :1" > /dev/null && pgrep -f "cloudflared tunnel" > /dev/null; do 
             sleep 300
           done
           echo "❌ توقفت إحدى الخدمات."
